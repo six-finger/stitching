@@ -26,7 +26,7 @@ class Warper:
         "transverseMercator",
     )
 
-    DEFAULT_WARP_TYPE = "spherical"
+    DEFAULT_WARP_TYPE = "plane"
 
     def __init__(self, warper_type=DEFAULT_WARP_TYPE):
         self.warper_type = warper_type
