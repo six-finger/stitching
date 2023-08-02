@@ -36,6 +36,7 @@ class Blender:
             self.blender.setSharpness(1.0 / blend_width)
 
         self.blender.prepare(dst_sz)
+        return dst_sz
 
     def feed(self, img, mask, corner):
         self.blender.feed(cv.UMat(img.astype(np.int16)), mask, corner)

@@ -35,27 +35,27 @@ def plot_images(imgs, figsize_in_inches=(5,5)):
 class my_Stitcher:
     DEFAULT_SETTINGS = {
         "medium_megapix": ImageHandler.DEFAULT_MEDIUM_MEGAPIX,
-        "detector": FeatureDetector.DEFAULT_DETECTOR,
+        "detector": FeatureDetector.DEFAULT_DETECTOR,       # +++
         "nfeatures": 500,
-        "matcher_type": FeatureMatcher.DEFAULT_MATCHER,
+        "matcher_type": FeatureMatcher.DEFAULT_MATCHER,     # +++
         "range_width": FeatureMatcher.DEFAULT_RANGE_WIDTH,
         "try_use_gpu": False,
         "match_conf": None,
         "confidence_threshold": Subsetter.DEFAULT_CONFIDENCE_THRESHOLD,
         "matches_graph_dot_file": Subsetter.DEFAULT_MATCHES_GRAPH_DOT_FILE,
-        "estimator": CameraEstimator.DEFAULT_CAMERA_ESTIMATOR,
-        "adjuster": CameraAdjuster.DEFAULT_CAMERA_ADJUSTER,
+        "estimator": CameraEstimator.DEFAULT_CAMERA_ESTIMATOR,      # +++
+        "adjuster": CameraAdjuster.DEFAULT_CAMERA_ADJUSTER,         # +++
         "refinement_mask": CameraAdjuster.DEFAULT_REFINEMENT_MASK,
-        "wave_correct_kind": WaveCorrector.DEFAULT_WAVE_CORRECTION,
-        "warper_type": Warper.DEFAULT_WARP_TYPE,
+        "wave_correct_kind": WaveCorrector.DEFAULT_WAVE_CORRECTION, # +
+        "warper_type": Warper.DEFAULT_WARP_TYPE,            # +++
         "low_megapix": ImageHandler.DEFAULT_LOW_MEGAPIX,
         "crop": Cropper.DEFAULT_CROP,
-        "compensator": ExposureErrorCompensator.DEFAULT_COMPENSATOR,
+        "compensator": ExposureErrorCompensator.DEFAULT_COMPENSATOR,    # +
         "nr_feeds": ExposureErrorCompensator.DEFAULT_NR_FEEDS,
         "block_size": ExposureErrorCompensator.DEFAULT_BLOCK_SIZE,
         "finder": SeamFinder.DEFAULT_SEAM_FINDER,
         "final_megapix": ImageHandler.DEFAULT_FINAL_MEGAPIX,
-        "blender_type": Blender.DEFAULT_BLENDER,
+        "blender_type": Blender.DEFAULT_BLENDER,            # +
         "blend_strength": Blender.DEFAULT_BLEND_STRENGTH,
         "timelapse": Timelapser.DEFAULT_TIMELAPSE,
         "timelapse_prefix": Timelapser.DEFAULT_TIMELAPSE_PREFIX,
@@ -101,7 +101,8 @@ class my_Stitcher:
         self.blender = Blender(args.blender_type, args.blend_strength)
         self.timelapser = Timelapser(args.timelapse, args.timelapse_prefix)
 
-    def stitch(self, img_names):
+    '''
+    def stitch_once(self, img_names):
         t0 = datetime.now()
         print(f'===== START ===== {t0}')
 
@@ -140,8 +141,11 @@ class my_Stitcher:
 
         pano = self.create_final_panorama()
         return pano
+    '''
 
-    def mask_stitch(self, img_names, img_lst, img_masks, incre_img=None, incre_mask=None):
+    '''
+    # Add 20230719
+    def stitch_by_mask(self, img_names, img_lst, img_masks, incre_img=None, incre_mask=None):
         origin_img_masks = img_masks
         origin_img_names = img_names
         t0 = datetime.now()
@@ -149,8 +153,7 @@ class my_Stitcher:
 
         self.initialize_registration(img_names, incre_img, incre_mask)
 
-
-        # ===== Resize medium (from origin) ===== 
+        # ===== Resize medium (from origin) ===== : CALIBRATION
         # imgs = self.resize_medium_resolution(img_names=img_names)
         imgs = self.resize_medium_resolution(img_lst=img_lst)
         img_masks = self.mask_resize_medium_resolution(img_lst=origin_img_masks)
@@ -169,8 +172,7 @@ class my_Stitcher:
         cameras = self.perform_wave_correction(cameras)
         print(f'{datetime.now()-t0} ===== 0) Calibration ok. =====')
 
-
-        # ===== Resize low (from medium) ===== 
+        # ===== Resize low (from medium) ===== : 
         self.estimate_scale(cameras)
         imgs = self.resize_low_resolution(img_lst=imgs)
         img_masks = self.mask_resize_low_resolution(img_lst=img_masks)
@@ -189,7 +191,6 @@ class my_Stitcher:
             # seam_masks_plots = [self.seam_finder.draw_seam_mask(img, seam_mask) for img, seam_mask in zip(imgs, seam_masks)]
             # plot_images(seam_masks_plots)
 
-
         #  ===== Resize final (from origin) ===== 
         # imgs = self.resize_final_resolution(img_names=img_names)
         imgs = self.resize_final_resolution(img_lst=img_lst)
@@ -207,14 +208,138 @@ class my_Stitcher:
 
         print(f'{datetime.now()-t0} ===== 2) Seam masks ok. =====')
 
-        self.initialize_composition(corners, sizes)
-        self.blend_images(imgs, seam_masks, corners)
-        print(f'{datetime.now()-t0} ===== 3) Blending ok. =====')
-
-        pano, pano_mask = self.create_final_panorama()
-        print(f'{datetime.now()-t0} ===== 4) Stitching ok. =====')
-
+        dst_sz = self.blender_prepare(corners, sizes)
+        self.blender_feed(imgs, seam_masks, corners)
+        pano, pano_mask = self.blender_blend()
+        print(f'{datetime.now()-t0} ===== 3) Stitching ok. =====')
+        
         return pano, pano_mask
+    '''
+
+    # Add 20230730
+    def stitch_by_local_feature(self, img_names, img_lst, img_masks, matching_mask0=None, incre_img=None, incre_mask=None):
+        origin_img_masks = img_masks
+        origin_img_names = img_names
+        t0 = datetime.now()
+        print(f'===== START ===== {t0}')
+
+        self.initialize_registration(img_names, incre_img, incre_mask)
+
+        # ===== Resize medium (from origin) ===== : CALIBRATION
+        # imgs = self.resize_medium_resolution(img_names=img_names)
+        imgs = self.resize_medium_resolution(img_lst=img_lst)
+        img_masks = self.mask_resize_medium_resolution(img_lst=origin_img_masks)
+        # plot_images([imgs[0], imgs[1], img_masks[0], img_masks[1]])
+
+        # Feature and match
+        if matching_mask0 is not None:
+            features = self.find_features(imgs, [matching_mask0, img_masks[1]])
+        else:
+            features = self.find_features(imgs, img_masks)
+        matches = self.match_features(features)
+        # print(len(matches[0].matches), len(features[0].getKeypoints()))
+        # print(len(matches[1].matches), len(features[1].getKeypoints()))
+
+        # all_relevant_matches = self.matcher.draw_matches_matrix(imgs, features, matches)
+        # for idx1, idx2, img in all_relevant_matches:
+        #     print(f"Matches Image {idx1+1} to Image {idx2+1}")
+        #     plot_image(img, (20,10))
+        print(f'{datetime.now()-t0} ===== 0) Matching ok. =====')
+        # Calibration
+        # imgs, features, matches = self.subset(imgs, features, matches)
+        cameras = self.estimate_camera_parameters(features, matches)
+        # cam0 = cameras[0]
+        # cam1 = cameras[1]
+        # print('R0', cam0.R.flatten())
+        # print('R1', cam1.R.flatten())
+        # k0 = Warper.get_K(cam0, 1)
+        # k1 = Warper.get_K(cam1, 1)
+        # print('k0', k0.flatten())
+        # print('k1', k1.flatten())
+
+        cameras = self.refine_camera_parameters(features, matches, cameras)
+        # cameras = self.perform_wave_correction(cameras)
+        print(f'{datetime.now()-t0} ===== 0) Calibration ok. =====')
+
+        # ===== Resize low (from medium) ===== : 
+        self.estimate_scale(cameras)
+        imgs = self.resize_low_resolution(img_lst=imgs)
+        img_masks = self.mask_resize_low_resolution(img_lst=img_masks)
+        
+        # warp low, crop low
+        imgs, warp_masks1, corners, sizes = self.warp_low_resolution(imgs, cameras)
+        warp_masks2, warp_masks2_, _, _ = self.warp_low_resolution(img_masks, cameras)
+        print(f'{datetime.now()-t0} ===== 1) low mask start. =====')
+        warp_masks = [cv.bitwise_and(a,b) for a,b in zip(warp_masks1, warp_masks2)]
+        print(f'{datetime.now()-t0} ===== 1) low mask end. =====')
+
+        # plot_images([imgs[0], imgs[1], warp_masks[0], warp_masks[1], 
+        #              img_masks[0], img_masks[1], warp_masks2[0], warp_masks2[1]])
+        # plot_images([imgs[0], imgs[1], warp_masks[0], warp_masks[1]])
+        # a = []
+        # print('corners',corners)
+        # print('sizes',sizes)
+        # plot_images(a)
+        # imgs=imgs_
+
+            # self.prepare_cropper(imgs, warp_masks, corners, sizes)
+        imgs, warp_masks, corners, sizes = self.crop_low_resolution(imgs, warp_masks, corners, sizes)
+        # Exposure errors
+        self.estimate_exposure_errors(corners, imgs, warp_masks)
+        print(f'{datetime.now()-t0} ===== 1) Exposure errors ok. =====')
+        # Seam masks
+        seam_masks = self.find_seam_masks(imgs, corners, warp_masks)
+            # seam_masks_plots = [self.seam_finder.draw_seam_mask(img, seam_mask) for img, seam_mask in zip(imgs, seam_masks)]
+            # plot_images(seam_masks_plots)
+        print(f'{datetime.now()-t0} ===== 2) Seam masks finding ok. =====')
+
+        #  ===== Resize final (from origin) ===== 
+        # imgs = self.resize_final_resolution(img_names=img_names)
+        imgs = self.resize_final_resolution(img_lst=img_lst)
+        img_masks = self.mask_resize_final_resolution(img_lst=origin_img_masks)
+        # warp final, crop final
+        print(f'{datetime.now()-t0} ===== 2) Resize final ok. =====')
+        imgs, warp_masks1, corners, sizes = self.warp_final_resolution(imgs, cameras)
+        warp_masks1 = list(warp_masks1)
+        print(f'{datetime.now()-t0} ===== 2) Warp img ok. =====')
+        warp_masks2, warp_masks2_, _, _ = self.warp_final_resolution(img_masks, cameras)    
+        warp_masks2 = list(warp_masks2)
+
+        print(f'{datetime.now()-t0} ===== 2) final mask start. =====')
+        warp_masks = [cv.bitwise_and(a,b) for a,b in zip(warp_masks1, warp_masks2)]
+        print(f'{datetime.now()-t0} ===== 2) final mask end. =====')
+
+        # imgs = list(imgs_)
+        # warp_masks = list(warp_masks)
+        # plot_images([imgs[0], imgs[1], warp_masks[0], warp_masks[1]])
+        # print('shapes', imgs[0].shape, imgs[1].shape)
+        # print('corners',corners)
+        # print('sizes',sizes)
+        # print()
+        # imgs=imgs_
+
+        # crop final
+        imgs, warp_masks, corners, sizes = self.crop_final_resolution(imgs, warp_masks, corners, sizes)
+        # resize seam masks
+        self.set_masks(warp_masks)
+        imgs = self.compensate_exposure_errors(corners, imgs)
+        seam_masks = self.resize_seam_masks(seam_masks)
+        # seam_masks_plots = [SeamFinder.draw_seam_mask(img, seam_mask) for img, seam_mask in zip(imgs, seam_masks)]
+        # plot_images(seam_masks_plots, (15,10))
+        # print(seam_masks_[0].get().shape, seam_masks_[1].get().shape)
+
+        print(f'{datetime.now()-t0} ===== 2) Seam masks ok. =====')
+
+        dst_sz = self.blender_prepare(corners, sizes)
+        print(f'{datetime.now()-t0} ===== 3) Blendering preparing ok. =====')
+        self.blender_feed(imgs, seam_masks, corners)
+        print(f'{datetime.now()-t0} ===== 3) Blendering feeding ok. =====')
+        pano, pano_mask = self.blender_blend()
+        print(f'{datetime.now()-t0} ===== 3) Blendering blending ok. =====')
+        
+        return pano, pano_mask, corners, sizes, dst_sz
+
+
 
     # Add 20230719
     def mask_resize_medium_resolution(self, img_lst=None, img_names=None):
@@ -282,9 +407,27 @@ class my_Stitcher:
         return self.warp(imgs, cameras, sizes, camera_aspect)
 
     def warp(self, imgs, cameras, sizes, aspect=1):
+        # imgs=list(imgs)
+        # if len(imgs[1].shape)==3:
+        #     h,w,_ = imgs[1].shape
+        # elif len(imgs[1].shape)==2:
+        #     h,w = imgs[1].shape
+        
+        # warped_pt = self.warper.warp_point([0,0], cameras[1], aspect)
+        # print('warped_pt2[0,0]', warped_pt)
+        # warped_pt = self.warper.warp_point_my([0,0], cameras[1], aspect)
+        # print('my_warped_pt2[0,0]---', warped_pt)      
+        # warped_pt = self.warper.warp_point([w,0], cameras[1], aspect)
+        # print('warped_pt2[w,0]', warped_pt)
+        # warped_pt = self.warper.warp_point_my([w,0], cameras[1], aspect)
+        # print('my_warped_pt2[w,0]---', warped_pt)
+
         imgs = self.warper.warp_images(imgs, cameras, aspect)
         masks = self.warper.create_and_warp_masks(sizes, cameras, aspect)
         corners, sizes = self.warper.warp_rois(sizes, cameras, aspect)
+        
+        # print('corner:', corners[1])          corners是self.warper.warp_point([0,0])和[w,0]得来的，原因待探究
+
         return imgs, masks, corners, sizes
 
     def prepare_cropper(self, imgs, masks, corners, sizes):
@@ -332,13 +475,14 @@ class my_Stitcher:
         else:
             raise StitchingError("Invalid Mask Index!")
 
-    def initialize_composition(self, corners, sizes):
+    def blender_prepare(self, corners, sizes):
         if self.timelapser.do_timelapse:
             self.timelapser.initialize(corners, sizes)
         else:
-            self.blender.prepare(corners, sizes)
+            dst_sz = self.blender.prepare(corners, sizes)
+            return dst_sz
 
-    def blend_images(self, imgs, masks, corners):
+    def blender_feed(self, imgs, masks, corners):
         for idx, (img, mask, corner) in enumerate(zip(imgs, masks, corners)):
             if self.timelapser.do_timelapse:
                 self.timelapser.process_and_save_frame(
@@ -348,7 +492,7 @@ class my_Stitcher:
                 # plot_images([img, mask.get()])
                 self.blender.feed(img, mask, corner)
 
-    def create_final_panorama(self):
+    def blender_blend(self):
         if not self.timelapser.do_timelapse:
             panorama, panorama_mask = self.blender.blend()
             return panorama, panorama_mask

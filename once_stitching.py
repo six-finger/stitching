@@ -27,5 +27,5 @@ if __name__ == '__main__':
 
     weihai_imgs = get_image_paths(origin_img_dir, img_set)[:15]
     print(weihai_imgs)
-    panorama = stitcher.stitch(weihai_imgs)
+    panorama = stitcher.stitch_once(weihai_imgs)
     cv.imwrite(r'res_once.jpg', panorama)

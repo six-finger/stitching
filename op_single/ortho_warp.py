@@ -35,7 +35,7 @@ def get_trans():
     return tr(np.array([[0,0,0]]))
 def get_intrinsic(fx, fy, w, h):
     return np.array([[fx, 0, w/2], [0, fy, h/2], [0, 0, 1]])
-def get_homography(K, M_, M_gt):
+def generate_homography(K, M_, M_gt):
     A = K @ M_
     B = K @ M_gt
 
